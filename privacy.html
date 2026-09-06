@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Splitpot privacy policy</title>
+<style>
+:root{--bg:#f4f7fb;--card:#fff;--fg:#1f2a3d;--muted:#7c8fb0;--border:#e0e6eb;--chip:#eff4fa}
+@media (prefers-color-scheme:dark){:root{--bg:#1a2537;--card:#2a3851;--fg:#fff;--muted:#9baac4;
+      --border:#333f55;--chip:#243149}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);padding:32px 16px 64px;
+     font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,sans-serif}
+.wrap{max-width:640px;margin:0 auto}
+h1{font-size:30px;font-weight:800;letter-spacing:-.6px;margin:0 0 6px}
+h2{font-size:19px;font-weight:800;margin:32px 0 8px}
+p,li{margin:0 0 12px}
+ul{padding-left:20px}
+.sub{color:var(--muted)}
+.card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:16px 18px;margin:18px 0}
+table{width:100%;border-collapse:collapse;margin:8px 0 16px}
+th,td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--border);vertical-align:top}
+th{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+code{background:var(--chip);border-radius:6px;padding:1px 6px;font-size:14px}
+a{color:inherit}
+.foot{color:var(--muted);font-size:14px;margin-top:36px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Splitpot privacy policy</h1>
+<p class="sub">Last updated 6 September 2026.</p>
+
+<p>Splitpot is an Android app for keeping score at home poker games: who bought in for what,
+who cashed out, and who owes whom at the end of the night. This policy describes exactly what
+the app stores, where it goes, and how to get rid of it.</p>
+
+<h2>What is collected</h2>
+<table>
+  <tr><th>What</th><th>Why</th></tr>
+  <tr>
+    <td>Your email address</td>
+    <td>It is your login. Sign-in is by a one-time emailed code or Google sign-in; Splitpot
+        never stores a password.</td>
+  </tr>
+  <tr>
+    <td>Your display name, and optionally a phone number</td>
+    <td>Shown on your own games. The phone number is optional and never shown to players.</td>
+  </tr>
+  <tr>
+    <td>Names of the people you play with, and optionally their payment details</td>
+    <td>You type these in. They let the app say who owes whom, and show a payee's details on
+        a shared ledger when they are owed money.</td>
+  </tr>
+  <tr>
+    <td>Game records: buy-ins, cash-outs, blinds, dates, locations you enter</td>
+    <td>This is the app's whole purpose.</td>
+  </tr>
+  <tr>
+    <td>An advertising identifier, used by Google AdMob</td>
+    <td>The app shows one banner advert. See "Advertising" below.</td>
+  </tr>
+</table>
+
+<div class="card">
+  <p><strong>You are entering other people's information.</strong> The names, and any payment
+  details you record, belong to your friends rather than to you. Only enter what they are
+  happy for you to keep, and tell them before you share a link that shows their results.</p>
+</div>
+
+<h2>What is not collected</h2>
+<ul>
+  <li>No contacts. The app never reads your address book.</li>
+  <li>No location. "Location" on a game is a free-text label you type, such as "John's place".</li>
+  <li>No SMS, no call logs, no photos, no files.</li>
+  <li>No analytics or crash-reporting product is built into the app.</li>
+  <li>No passwords, because there are none.</li>
+</ul>
+
+<h2>Where it is stored</h2>
+<p>Data is held in a Supabase project hosted on Amazon Web Services in the Mumbai region
+(<code>ap-south-1</code>), in India. It is protected by row-level security, which means each
+host can only ever read and write their own rows. The anonymous role used by shared web pages
+has no direct access to any table at all.</p>
+<p>Some data is also kept on your phone so the app works with no signal: the game you last
+opened, your player list, your profile, and any buy-ins or cash-outs waiting to be sent. That
+copy is private to the app and is removed when you sign out or delete your account.</p>
+
+<h2>Links you choose to share</h2>
+<p>Two kinds of link can be shared, and both are your decision:</p>
+<ul>
+  <li>A <strong>ledger link</strong> for one game. Anyone holding it can see that game's
+      results, and a payee's payment details when they are owed money.</li>
+  <li>A <strong>standings link</strong> covering every finished game. This is off by default.
+      Turning it on publishes every player's name and how much they are up or down to anyone
+      with the link. Turning it off makes the link dead immediately.</li>
+</ul>
+<p>Neither link is listed anywhere or indexed by search engines, but a link is a link: anyone
+it is forwarded to can open it.</p>
+
+<h2>Advertising</h2>
+<p>Splitpot shows a single banner advert served by Google AdMob. AdMob may use an advertising
+identifier to select adverts and measure them. You can reset or delete that identifier in
+Android under Settings, then Privacy, then Ads. Google's handling of this data is described in
+the <a href="https://policies.google.com/technologies/partner-sites">Google privacy policy</a>.
+Nothing you type into Splitpot — no names, amounts or results — is ever sent to AdMob.</p>
+
+<h2>Who else sees it</h2>
+<p>Nothing is sold, and nothing is shared for advertising. Data reaches only:</p>
+<ul>
+  <li>Supabase and Amazon Web Services, which host the database and the sign-in service.</li>
+  <li>Google AdMob, for the advert, as described above.</li>
+  <li>Anyone you deliberately send a ledger or standings link to.</li>
+</ul>
+
+<h2>Deleting everything</h2>
+<p>In the app, open <strong>Settings</strong>, scroll to <strong>Account</strong>, and choose
+<strong>Delete my account</strong>. That removes every game, every buy-in and cash-out, your
+whole player list, your profile and your login, in one step. It cannot be undone, no backup
+copy is kept, and any links you shared stop working at once.</p>
+<p>If you cannot reach the app, email the address below and ask for deletion.</p>
+
+<h2>Children</h2>
+<p>Splitpot is not directed at children and is not intended for anyone under 18.</p>
+
+<h2>Changes</h2>
+<p>If this policy changes, the date at the top changes with it.</p>
+
+<h2>Contact</h2>
+<p>Questions, or a deletion request: <a href="mailto:prishaparekh727@gmail.com">prishaparekh727@gmail.com</a>.</p>
+
+<p class="foot">Splitpot is an independent app and is not affiliated with any poker room,
+casino or payment provider.</p>
+
+</div>
+</body>
+</html>
