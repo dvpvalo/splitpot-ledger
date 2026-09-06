@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Splitpot standings</title>
+<style>
+:root{--bg:#f4f7fb;--card:#fff;--fg:#1f2a3d;--muted:#7c8fb0;--border:#e0e6eb;
+      --primary:#00a1ff;--up:#36c96c;--down:#ff6692;--chip:#eff4fa}
+@media (prefers-color-scheme:dark){:root{--bg:#1a2537;--card:#2a3851;--fg:#fff;--muted:#9baac4;
+      --border:#333f55;--chip:#243149}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);padding:24px 16px 48px;
+     font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,sans-serif}
+.wrap{max-width:520px;margin:0 auto}
+.center{text-align:center}
+h1{font-size:30px;font-weight:800;letter-spacing:-.6px;margin:.3em 0 .1em}
+h2{font-size:20px;font-weight:800;margin:28px 0 12px}
+.sub{color:var(--muted);margin:0 0 14px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:22px 0}
+.tile{background:var(--chip);border-radius:16px;padding:14px}
+.tile .k{color:var(--muted);font-size:13px}
+.tile .v{font-size:20px;font-weight:800;margin-top:4px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:16px;
+      padding:14px 16px;margin-bottom:10px}
+.row{display:flex;align-items:center;gap:12px}
+.row .grow{flex:1;min-width:0}
+.rank{width:24px;font-weight:800;color:var(--muted);font-variant-numeric:tabular-nums}
+.rank.first{color:var(--primary)}
+.face{width:38px;height:38px;border-radius:999px;background:var(--chip);flex:none;
+      display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:800}
+.name{font-weight:700}
+.small{color:var(--muted);font-size:14px}
+.amt{font-weight:800;font-size:19px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.up{color:var(--up)}.down{color:var(--down)}.flat{color:var(--muted)}
+.foot{color:var(--muted);font-size:14px;text-align:center;margin-top:32px}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"><p class="center small">Loading standings…</p></div>
+
+<script>
+// Publishable key: safe to ship. Every table is behind RLS and the anon role holds no table
+// grants at all — only EXECUTE on the read-only functions. get_public_history itself refuses
+// unless the host has switched sharing on for this exact slug.
+const SUPABASE_URL = "https://sdslqdlmputkhadbrtnm.supabase.co";
+const SUPABASE_KEY = "sb_publishable_w7JkJoarKKptxjlU8Zp34A_bNEv02M-";
+
+const slug = new URLSearchParams(location.search).get("h") || "";
+const app = document.getElementById("app");
+
+const ZERO_DECIMAL = new Set(["JPY","KRW","CLP","PYG","VND","ISK"]);
+const SYMBOLS = {GBP:"£",USD:"$",EUR:"€",INR:"₹",JPY:"¥",PYG:"₲",BRL:"R$",CAD:"$",AUD:"$",
+                 NZD:"$",MXN:"$",ARS:"$",CLP:"$",COP:"$",PEN:"S/",CHF:"Fr",ZAR:"R"};
+
+function money(cents, cur, signed){
+  const digits = ZERO_DECIMAL.has(cur) ? 0 : 2;
+  const abs = Math.abs(cents) / Math.pow(10, digits);
+  const body = Number.isInteger(abs)
+    ? abs.toLocaleString("en-GB")
+    : abs.toLocaleString("en-GB",{minimumFractionDigits:digits,maximumFractionDigits:digits});
+  const sign = cents < 0 ? "-" : (signed && cents > 0 ? "+" : "");
+  return sign + (SYMBOLS[cur] || cur + " ") + body;
+}
+
+function longDate(iso){
+  return new Date(iso + "T00:00:00Z").toLocaleDateString("en-GB",
+    {day:"numeric",month:"short",year:"numeric",timeZone:"UTC"});
+}
+
+async function rpc(fn, body){
+  const res = await fetch(SUPABASE_URL + "/rest/v1/rpc/" + fn, {
+    method: "POST",
+    headers: {"content-type":"application/json", apikey: SUPABASE_KEY,
+              authorization: "Bearer " + SUPABASE_KEY},
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error("rpc " + fn + " " + res.status);
+  return res.json();
+}
+
+/** Build every node with textContent — player names are user input and never become markup. */
+function el(tag, cls, text){
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined) n.textContent = text;
+  return n;
+}
+
+function card(){ return el("div","card"); }
+
+function tone(cents){ return cents > 0 ? "up" : (cents < 0 ? "down" : "flat"); }
+
+function render(d){
+  app.replaceChildren();
+
+  const head = el("div","center");
+  head.append(el("h1", null, d.host ? d.host + "'s table" : "The table"));
+  head.append(el("p","sub","How everyone is doing across every finished game."));
+  app.append(head);
+
+  // The three numbers that describe a group: how often, how many, how much.
+  const t = d.totals || {};
+  const grid = el("div","grid");
+  [["Games", String(t.games || 0)],
+   ["Players", String(t.players || 0)],
+   ["Total pot", money(t.pot_cents || 0, (d.standings[0] || {}).currency || "GBP")]]
+    .forEach(([k, v]) => {
+      const tile = el("div","tile");
+      tile.append(el("div","k",k), el("div","v",v));
+      grid.append(tile);
+    });
+  app.append(grid);
+
+  app.append(el("h2", null, "Standings"));
+  if (!d.standings.length) {
+    app.append(el("p","small","No finished games yet."));
+  } else {
+    d.standings.forEach((p, i) => {
+      const c = card();
+      const row = el("div","row");
+      const rank = el("div", i === 0 ? "rank first" : "rank", String(i + 1));
+      const face = el("div","face", p.avatar || (p.player_name || "?").trim().charAt(0).toUpperCase());
+      const grow = el("div","grow");
+      grow.append(el("div","name", p.player_name));
+      grow.append(el("div","small",
+        p.games + (p.games === 1 ? " game" : " games") +
+        "  ·  in " + money(p.in_cents, p.currency) +
+        "  ·  out " + money(p.out_cents, p.currency)));
+      row.append(rank, face, grow,
+        el("div","amt " + tone(p.net_cents), money(p.net_cents, p.currency, true)));
+      c.append(row);
+      app.append(c);
+    });
+  }
+
+  app.append(el("h2", null, "Games"));
+  if (!d.games.length) {
+    app.append(el("p","small","Nothing finished yet."));
+  } else {
+    d.games.forEach(g => {
+      const c = card();
+      const row = el("div","row");
+      const grow = el("div","grow");
+      grow.append(el("div","name", g.game_name));
+      grow.append(el("div","small",
+        longDate(g.played_on) + "  ·  " + g.players +
+        (g.players === 1 ? " player" : " players")));
+      row.append(grow, el("div","amt flat", money(g.pot_cents, g.currency)));
+      c.append(row);
+      app.append(c);
+    });
+  }
+
+  app.append(el("p","foot","Settle your own poker games with Splitpot"));
+}
+
+function notFound(){
+  app.replaceChildren();
+  const box = el("div","center");
+  box.append(el("h1", null, "Nothing here"));
+  box.append(el("p","sub",
+    "This link is wrong, or the host has turned sharing off. Ask them for a new one."));
+  app.append(box);
+}
+
+(async function(){
+  if (!/^[A-Za-z0-9_-]{8,32}$/.test(slug)) return notFound();
+  try {
+    const data = await rpc("get_public_history", { p_slug: slug });
+    if (!data) return notFound();
+    render(data);
+  } catch (e) {
+    app.replaceChildren();
+    app.append(el("p","center small","Could not load this page. Try again in a moment."));
+  }
+})();
+</script>
+</body>
+</html>
