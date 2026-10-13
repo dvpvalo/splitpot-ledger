@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Splitpot invite</title>
+<style>
+:root{--bg:#f4f7fb;--card:#fff;--fg:#1f2a3d;--muted:#7c8fb0;--border:#e0e6eb;
+      --primary:#00a1ff;--up:#2fb463;--down:#e5486f;--maybe:#d99a1e;--chip:#eff4fa;--me:#e8f6ff}
+@media (prefers-color-scheme:dark){:root{--bg:#1a2537;--card:#2a3851;--fg:#fff;--muted:#9baac4;
+      --border:#333f55;--chip:#243149;--me:#203b57}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);padding:24px 16px 48px;
+     font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,sans-serif}
+.wrap{max-width:520px;margin:0 auto}
+.center{text-align:center}
+h1{font-size:30px;font-weight:800;letter-spacing:-.6px;margin:.3em 0 .1em}
+h2{font-size:20px;font-weight:800;margin:28px 0 12px}
+.sub{color:var(--muted);margin:0 0 6px}
+.chip{display:inline-block;background:var(--chip);border:1px solid var(--border);
+      border-radius:999px;padding:6px 14px;font-size:13px;font-weight:600}
+.count{display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin:18px 0 4px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:16px;
+      padding:12px 14px;margin-bottom:10px}
+.card.me{background:var(--me);border-color:var(--primary)}
+.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.name{font-weight:700;flex:1;min-width:120px}
+.small{color:var(--muted);font-size:14px}
+.answers{display:flex;gap:6px}
+button{font:inherit;font-weight:700;border:1px solid var(--border);border-radius:999px;
+       min-height:44px;padding:0 14px;background:var(--chip);color:var(--fg);cursor:pointer}
+button[disabled]{opacity:.55;cursor:default}
+button.on.in{background:var(--up);border-color:var(--up);color:#fff}
+button.on.maybe{background:var(--maybe);border-color:var(--maybe);color:#fff}
+button.on.out{background:var(--down);border-color:var(--down);color:#fff}
+.foot{color:var(--muted);font-size:14px;text-align:center;margin-top:32px}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"><p class="center small">Loading invite…</p></div>
+
+<script>
+// Publishable key: safe to ship. Every table is behind RLS and the anon role holds no table
+// grants at all; this page can only call get_invite and answer_invite, both gated on the slug.
+const SUPABASE_URL = "https://sdslqdlmputkhadbrtnm.supabase.co";
+const SUPABASE_KEY = "sb_publishable_w7JkJoarKKptxjlU8Zp34A_bNEv02M-";
+
+const slug = new URLSearchParams(location.search).get("i") || "";
+const app = document.getElementById("app");
+const ME = "splitpot_invite_me_" + slug;
+const ANSWERS = [["in", "In"], ["maybe", "Maybe"], ["out", "Out"]];
+
+async function rpc(fn, body){
+  const res = await fetch(SUPABASE_URL + "/rest/v1/rpc/" + fn, {
+    method: "POST",
+    headers: {"content-type":"application/json", apikey: SUPABASE_KEY,
+              authorization: "Bearer " + SUPABASE_KEY},
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error("rpc " + fn + " " + res.status);
+  return res.json();
+}
+
+/** Build every node with textContent: names are user input and never become markup. */
+function el(tag, cls, text){
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined) n.textContent = text;
+  return n;
+}
+
+function me(){ try { return localStorage.getItem(ME); } catch(e){ return null; } }
+function rememberMe(id){ try { localStorage.setItem(ME, id); } catch(e){} }
+
+/** "Fri 16 Oct, 9:00 pm", in this phone's own time zone. Same wording as the app's inviteTime. */
+function when(iso){
+  const d = new Date(iso);
+  const days = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const h = d.getHours();
+  return days[d.getDay()] + " " + d.getDate() + " " + months[d.getMonth()] + ", "
+    + (h % 12 === 0 ? 12 : h % 12) + ":" + String(d.getMinutes()).padStart(2, "0") + " " + (h < 12 ? "am" : "pm");
+}
+
+function render(d){
+  app.replaceChildren();
+  const head = el("div","center");
+  head.append(el("h1", null, d.title));
+  head.append(el("p","sub", when(d.starts_at) + (d.location ? " · " + d.location : "")));
+  if (d.host) head.append(el("p","small", "Hosted by " + d.host));
+  app.append(head);
+
+  const tally = (a) => d.players.filter(p => p.answer === a).length;
+  const count = el("div","count");
+  count.append(el("span","chip", tally("in") + " in"), el("span","chip", tally("maybe") + " maybe"),
+    el("span","chip", tally("out") + " out"));
+  app.append(count);
+
+  if (d.started){
+    app.append(el("p","center sub","This game has started. See you at the next one."));
+    return;
+  }
+
+  app.append(el("h2", null, "Tap your name"));
+  const mine = me();
+  // Whoever this phone answered for comes first, then everyone already in.
+  const order = { in: 0, maybe: 1, out: 2 };
+  const players = [...d.players].sort((a, b) =>
+    (b.id === mine) - (a.id === mine) || (order[a.answer] ?? 3) - (order[b.answer] ?? 3));
+  players.forEach(p => {
+    const c = el("div","card" + (p.id === mine ? " me" : ""));
+    const row = el("div","row");
+    row.append(el("div","name", (p.avatar ? p.avatar + " " : "") + p.name));
+    const answers = el("div","answers");
+    ANSWERS.forEach(([key, label]) => {
+      const b = el("button", key + (p.answer === key ? " on" : ""), label);
+      b.setAttribute("aria-pressed", String(p.answer === key));
+      b.setAttribute("aria-label", p.name + ": " + label);
+      b.onclick = async () => {
+        answers.querySelectorAll("button").forEach(x => x.disabled = true);
+        try {
+          const ok = await rpc("answer_invite", {p_slug: slug, p_player_id: p.id, p_answer: key});
+          if (!ok) throw new Error("rejected");
+          rememberMe(p.id);
+          load();
+        } catch(e){
+          answers.querySelectorAll("button").forEach(x => x.disabled = false);
+          alert("Couldn't save that. Check your connection and try again.");
+        }
+      };
+      answers.append(b);
+    });
+    row.append(answers);
+    c.append(row);
+    app.append(c);
+  });
+  app.append(el("p","foot","Not on the list? Ask the host to add you. · Splitpot"));
+  document.title = d.title + " — Splitpot invite";
+}
+
+async function load(){
+  if (!/^[A-Za-z0-9_-]{8,32}$/.test(slug)){
+    app.replaceChildren(el("p","center small","That invite link doesn't look right."));
+    return;
+  }
+  try {
+    const data = await rpc("get_invite", {p_slug: slug});
+    if (!data){
+      app.replaceChildren(el("p","center small","This invite was cancelled."));
+      return;
+    }
+    render(data);
+  } catch(e){
+    app.replaceChildren(el("p","center small","Couldn't load this invite. Try again in a moment."));
+  }
+}
+
+load();
+// Answers come in from the whole group; keep the counts fresh while the tab is open.
+setInterval(() => { if (!document.hidden) load(); }, 20000);
+</script>
+</body>
+</html>

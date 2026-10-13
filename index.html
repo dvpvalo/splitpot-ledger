@@ -36,11 +36,26 @@ h2{font-size:20px;font-weight:800;margin:28px 0 12px}
 button{font:inherit;font-weight:700;border:0;border-radius:999px;padding:11px 20px;
        background:var(--primary);color:#fff;cursor:pointer}
 button[disabled]{opacity:.55;cursor:default}
+.upi{display:inline-block;text-decoration:none;font-weight:700;border-radius:999px;padding:11px 20px;
+     background:var(--up);color:#fff}
 .paidchip{background:var(--chip);border:1px solid var(--border);border-radius:999px;
           padding:6px 14px;font-size:13px;font-weight:600;color:var(--muted)}
 .pay{background:var(--paybg);border:1px solid var(--paybd);border-radius:12px;
      padding:10px 12px;margin-top:10px;font-size:14px}
 .foot{color:var(--muted);font-size:14px;text-align:center;margin-top:32px}
+.codein{display:block;width:100%;margin:16px 0 12px;padding:12px;border-radius:14px;
+        border:1px solid var(--border);background:var(--bg);color:var(--fg);text-align:center;
+        font:800 28px/1.2 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.2em;text-transform:uppercase}
+.wide{width:100%;min-height:48px}
+.names{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.ghost{background:var(--chip);color:var(--fg);border:1px solid var(--border)}
+.link{background:none;color:var(--primary);padding:11px 4px}
+.ask{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.ask input{flex:1;min-width:0;width:120px;font:inherit;font-size:18px;padding:10px 16px;border-radius:999px;
+           border:1px solid var(--border);background:var(--bg);color:var(--fg)}
+h3{font-size:16px;font-weight:800;margin:18px 0 0}
+.status{margin-top:10px;font-size:14px;font-weight:600}
+.status.wait{color:var(--muted)}.status.yes{color:var(--up)}.status.no{color:var(--down)}
 </style>
 </head>
 <body>
@@ -48,11 +63,13 @@ button[disabled]{opacity:.55;cursor:default}
 
 <script>
 // Publishable key: safe to ship. Every table is behind RLS and the anon role holds no table
-// grants at all — only EXECUTE on get_ledger and mark_settlement_paid.
+// grants at all — only EXECUTE on get_ledger, mark_settlement_paid, ledger_for_code and
+// request_from_ledger (an ask the host must approve: nothing here writes money).
 const SUPABASE_URL = "https://sdslqdlmputkhadbrtnm.supabase.co";
 const SUPABASE_KEY = "sb_publishable_w7JkJoarKKptxjlU8Zp34A_bNEv02M-";
 
-const slug = new URLSearchParams(location.search).get("g") || "";
+const params = new URLSearchParams(location.search);
+let slug = params.get("g") || "";
 const app = document.getElementById("app");
 
 const ZERO_DECIMAL = new Set(["JPY","KRW","CLP","PYG","VND","ISK"]);
@@ -98,6 +115,126 @@ function el(tag, cls, text){
 
 function card(){ return el("div","card"); }
 
+// Same rules as lib/money.js upiLink: rupees only, a vetted id sent raw, amount to two places.
+const isUpiId = (s) => /^[A-Za-z0-9._-]{2,256}@[A-Za-z][A-Za-z0-9.-]{1,63}$/.test((s || "").trim());
+function upiLink(payee, cents, cur, note){
+  if (!payee || cur !== "INR" || payee.payment_type !== "upi" || !isUpiId(payee.payment_details) || !(cents > 0)) return null;
+  const am = Math.floor(cents / 100) + "." + String(cents % 100).padStart(2, "0");
+  return "upi://pay?pa=" + payee.payment_details.trim() + "&pn=" + encodeURIComponent(payee.name)
+    + "&am=" + am + "&cu=INR&tn=" + encodeURIComponent(note.slice(0, 50));
+}
+
+// Which seat is "me" on this phone, per game. Storage can be blocked: then it just asks again.
+const meKey = () => "splitpot_me_" + slug;
+function meId(){ try { return localStorage.getItem(meKey()); } catch(e){ return null; } }
+function setMe(id){ try { id ? localStorage.setItem(meKey(), id) : localStorage.removeItem(meKey()); } catch(e){} }
+
+// "1,200" or "1200.50" -> minor units, or null. Same bounds as the server.
+function parseAmount(text, cur){
+  const t = String(text || "").replace(/[,\s]/g, "");
+  const digits = ZERO_DECIMAL.has(cur) ? 0 : 2;
+  const ok = digits ? /^\d+(\.\d{1,2})?$/ : /^\d+$/;
+  if (!ok.test(t)) return null;
+  const cents = Math.round(parseFloat(t) * Math.pow(10, digits));
+  return cents > 0 && cents <= 100000000 ? cents : null;
+}
+
+const REFUSED = {not_live:"The game has finished.", cashed_out:"You've already cashed out.",
+  no_seat:"You're not at this table any more.", bad_amount:"That amount doesn't look right."};
+
+/**
+ * Live games only: tap your name, then ask the host for a rebuy or send your stack count.
+ * Nothing is logged until the host taps Approve on their phone.
+ */
+function askPanel(d){
+  const g = d.game, cur = g.currency;
+  const seats = [...d.results].sort((a, b) => a.seat_order - b.seat_order);
+  const me = seats.find(r => r.game_player_id === meId());
+  const c = card();
+
+  if (!me){
+    c.append(el("div","name","At the table?"),
+      el("div","small","Tap your name to ask the host for a rebuy, or to send your stack count."));
+    const names = el("div","names");
+    seats.forEach(r => {
+      const b = el("button","ghost", r.name);
+      b.onclick = () => { setMe(r.game_player_id); render(d); };
+      names.append(b);
+    });
+    c.append(names);
+    return c;
+  }
+
+  const head = el("div","row"), who = el("div","grow");
+  who.append(el("div","small","You're"), el("div","name", me.name));
+  const notMe = el("button","link","Not you?");
+  notMe.onclick = () => { setMe(null); render(d); };
+  head.append(who, notMe);
+  c.append(head);
+
+  if (me.cashed_out){
+    c.append(el("div","small","You've cashed out. Tell the host if you're back in."));
+    return c;
+  }
+
+  // The latest ask of this kind, worded for the player. Answers older than 30 minutes go quiet.
+  const status = (kind, words) => {
+    const q = (d.requests || []).find(x => x.game_player_id === me.game_player_id && x.kind === kind);
+    if (!q) return null;
+    const amt = money(q.amount_cents, cur);
+    if (q.status === "pending") return el("div","status wait", words.wait(amt));
+    if (Date.now() - new Date(q.decided_at) > 30 * 60000) return null;
+    return q.status === "approved" ? el("div","status yes", words.yes(amt)) : el("div","status no", words.no(amt));
+  };
+
+  const send = async (kind, cents, btn, label, note) => {
+    if (!cents){ note.className = "status no"; note.textContent = REFUSED.bad_amount; return; }
+    btn.disabled = true; btn.textContent = "Sending…";
+    try {
+      const res = await rpc("request_from_ledger",
+        {p_slug: slug, p_game_player_id: me.game_player_id, p_kind: kind, p_amount_cents: cents});
+      if (res !== "ok") throw new Error(REFUSED[res] || "The host's table said no.");
+      load();
+    } catch(e){
+      btn.disabled = false; btn.textContent = label;
+      note.className = "status no";
+      note.textContent = e.message && !e.message.startsWith("rpc ") ? e.message : "Couldn't send that. Check your connection and try again.";
+    }
+  };
+
+  // Rebuy: the amount they last bought in for, their first if different, or any amount.
+  c.append(el("h3", null, me.last_buyin_cents ? "Rebuy" : "Buy in"));
+  const quick = el("div","ask"), rebuyNote = el("div");
+  [me.last_buyin_cents, me.first_buyin_cents].filter((v, i, a) => v && a.indexOf(v) === i).forEach((cents, i) => {
+    const label = (i === 0 ? "Again " : "") + money(cents, cur);
+    const b = el("button", null, label);
+    b.onclick = () => send("buyin", cents, b, label, rebuyNote);
+    quick.append(b);
+  });
+  const other = el("input"), go = el("button","ghost","Ask");
+  Object.assign(other, {inputMode:"decimal", placeholder: me.last_buyin_cents ? "Other amount" : "Amount", autocomplete:"off"});
+  other.setAttribute("aria-label","Rebuy amount");
+  go.onclick = () => send("buyin", parseAmount(other.value, cur), go, "Ask", rebuyNote);
+  const typed = el("div","ask"); typed.append(other, go);
+  c.append(quick, typed, rebuyNote);
+  const rs = status("buyin", {wait: a => "Waiting for the host to approve " + a,
+    yes: a => "Approved ✓ " + a + " is in", no: a => "The host didn't take the " + a + " rebuy"});
+  if (rs) c.append(rs);
+
+  // The end of the night: everyone counts their own chips, the host checks they add up.
+  c.append(el("h3", null, "Count my stack"));
+  const count = el("input"), sendCount = el("button", null, "Send"), countNote = el("div");
+  Object.assign(count, {inputMode:"decimal", placeholder:"Chips worth", autocomplete:"off"});
+  count.setAttribute("aria-label","My chips are worth");
+  sendCount.onclick = () => send("cashout", parseAmount(count.value, cur), sendCount, "Send", countNote);
+  const row = el("div","ask"); row.append(count, sendCount);
+  c.append(row, countNote);
+  const cs = status("cashout", {wait: a => "Sent " + a + ". Waiting for the host",
+    yes: a => "Cashed out ✓ " + a, no: a => "The host didn't take the " + a + " count. Count again?"});
+  if (cs) c.append(cs);
+  return c;
+}
+
 function render(d){
   const g = d.game, cur = g.currency;
   app.replaceChildren();
@@ -109,6 +246,8 @@ function render(d){
   head.append(el("p","sub", date + (g.location ? " · " + g.location : "")));
   head.append(el("span","chip", g.status === "settled" ? "Finished · Settling up" : "Live · In progress"));
   app.append(head);
+
+  if (g.status === "live" && d.results.length && d.results[0].game_player_id) app.append(askPanel(d));
 
   const grid = el("div","grid");
   const inPlay = d.totals.buyin_cents - d.totals.cashout_cents;
@@ -129,7 +268,7 @@ function render(d){
       row.append(grow, el("div","amt", money(s.amount_cents,cur)));
       c.append(row);
 
-      const actions = el("div","row"); actions.style.marginTop = "12px";
+      const actions = el("div","row"); actions.style.marginTop = "12px"; actions.style.flexWrap = "wrap";
       if (s.status === "paid"){
         actions.append(el("span","paidchip","Paid"));
         c.append(actions);
@@ -148,8 +287,17 @@ function render(d){
             alert("Couldn't save that. Check your connection and try again.");
           }
         };
+        const payee = d.results.find(r => r.player_id === s.to_player_id);
+        const href = upiLink(payee, s.amount_cents, cur, "Splitpot: " + g.name);
+        if (href){
+          const pay = el("a","upi","Pay " + money(s.amount_cents,cur));
+          pay.href = href;
+          actions.append(pay);
+        }
         actions.append(btn);
-        c.append(actions, el("div","pay", s.from_name + ": tap once you've sent the money."));
+        c.append(actions, el("div","pay", href
+          ? s.from_name + ": Pay opens your UPI app with " + s.to_name + " and the amount filled in. Mark as paid once it's sent."
+          : s.from_name + ": tap once you've sent the money."));
       }
       app.append(c);
     });
@@ -163,7 +311,7 @@ function render(d){
     grow.append(el("div","small",
       "In " + money(r.in_cents,cur) + " · Out " + money(r.out_cents,cur)));
     // Only ever present for players who are owed money; the server withholds it otherwise.
-    if (r.payment_details) grow.append(el("div","small", r.payment_type + ": " + r.payment_details));
+    if (r.payment_details) grow.append(el("div","small", (r.payment_type === "upi" ? "UPI" : r.payment_type) + ": " + r.payment_details));
     const cls = r.net_cents > 0 ? "amt up" : r.net_cents < 0 ? "amt down" : "amt flat";
     row.append(grow, el("div", cls, money(r.net_cents, cur, true)));
     c.append(row); app.append(c);
@@ -183,6 +331,36 @@ function render(d){
   document.title = g.name + " — Splitpot ledger";
 }
 
+// No link, just the six-character code the host's screen shows: ask for it, or take ?c=.
+function codeEntry(message){
+  const c = card(); c.classList.add("center");
+  const form = el("form");
+  const input = el("input","codein");
+  Object.assign(input, {name:"code", maxLength:9, autocomplete:"off", spellcheck:false, required:true,
+    placeholder:"K7QMXR"});
+  input.setAttribute("autocapitalize","characters");
+  input.setAttribute("aria-label","Game code");
+  const go = el("button","wide","Open the game");
+  form.append(input, go);
+  form.onsubmit = (e) => { e.preventDefault(); go.disabled = true; go.textContent = "Opening…"; join(input.value); };
+  c.append(el("h1",null,"Join a game"), el("p","sub","Type the code on the host's screen."), form);
+  if (message) c.append(el("p","small",message));
+  app.replaceChildren(c);
+  input.focus();
+}
+
+async function join(code){
+  try {
+    const found = await rpc("ledger_for_code", {p_code: code});
+    if (!found) return codeEntry("No live game has that code. Check it with the host.");
+    slug = found;
+    history.replaceState(null, "", "?g=" + encodeURIComponent(found));
+    load();
+  } catch(e){
+    codeEntry("Couldn't check that code. Try again in a moment.");
+  }
+}
+
 async function load(){
   if (!/^[A-Za-z0-9_-]{8,32}$/.test(slug)){
     app.replaceChildren(el("p","center small","That ledger link doesn't look right."));
@@ -200,9 +378,13 @@ async function load(){
   }
 }
 
-load();
+if (slug) load();
+else if (params.get("c")) join(params.get("c"));
+else codeEntry();
 // A live game moves; refresh while the tab is open so players see buy-ins as they happen.
-setInterval(() => { if (!document.hidden) load(); }, 20000);
+// Never mid-typing: a refresh rebuilds the page and would wipe an amount half entered.
+const typing = () => [...document.querySelectorAll("input")].some(i => i.value || i === document.activeElement);
+setInterval(() => { if (slug && !document.hidden && !typing()) load(); }, 20000);
 </script>
 </body>
 </html>
